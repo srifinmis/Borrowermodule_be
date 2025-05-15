@@ -119,6 +119,19 @@ module.exports = function(sequelize, DataTypes) {
     tranche_date: {
       type: DataTypes.DATEONLY,
       allowNull: true
+    },
+    id: {
+      autoIncrement: true,
+      type: DataTypes.INTEGER,
+      allowNull: false
+    },
+    moratorium_start_date: {
+      type: DataTypes.DATEONLY,
+      allowNull: true
+    },
+    moratorium_end_date: {
+      type: DataTypes.DATEONLY,
+      allowNull: true
     }
   }, {
     sequelize,

@@ -6,14 +6,18 @@ const jwt = require("jsonwebtoken");
 // const tranche_details = require('../models/tranche_details');
 
 const models = initModels(sequelize);
-const { tranche_details_staging, tranche_details } = models;
+const { tranche_details_staging, tranche_details, repayment_schedule, repayment_schedule_staging } = models;
 
 // Sending Create Executed Documents  
 exports.trancheCreate = async (req, res) => {
-    const data = req.body;
+    const data = req.body.finalFormData;
+    console.log("data tranche create: ", data)
     let temp = data.createdby;
+    console.log("temp: ", temp)
     const JWT_SECRET = process.env.JWT_SECRET;
+    console.log("secret: ", JWT_SECRET)
     const decoded = jwt.verify(temp, JWT_SECRET);
+    console.log("decode: ", decoded)
 
     const trancheData = {
         tranche_id: data.tranche_id,
@@ -30,8 +34,10 @@ exports.trancheCreate = async (req, res) => {
         interest_payment_frequency: data.interest_payment_frequency,
         applicable_of_leap_year: data.applicable_of_leap_year,
         interest_calculation_days: data.interest_calculation_days,
-        createdat: data.createdat || new Date(),
-        updatedat: data.updatedat || new Date(),
+        moratorium_start_date: data.moratorium_start_date,
+        moratorium_end_date: data.moratorium_end_date,
+        // createdat: data.createdat || new Date(),
+        // updatedat: data.updatedat || new Date(),
         remarks: data.remarks || null,
         approval_status: data.approval_status || "Approval Pending",
         createdby: decoded.id,
@@ -61,14 +67,14 @@ exports.trancheFetch = async (req, res) => {
     try {
         const tranche = await tranche_details_staging.findAll({
             attributes: [
-                "lender_code", "tranche_id", "sanction_id", "tranche_amount", "interest_type", "interest_rate", "approval_status", "createdat", "updatedat"
+                "lender_code", "tranche_id", "sanction_id", "tranche_amount", "interest_type", "interest_rate", "approval_status", "createdat", "updatedat", "id"
             ], where: {
                 approval_status: { [Op.or]: ["Approval Pending", "Rejected"] }
             }
         });
         const tranchemain = await tranche_details.findAll({
             attributes: [
-                "lender_code", "tranche_id", "sanction_id", "tranche_amount", "interest_type", "interest_rate", "approval_status", "createdat", "updatedat"
+                "lender_code", "tranche_id", "sanction_id", "tranche_amount", "interest_type", "interest_rate", "approval_status", "createdat", "updatedat", "id"
             ], where: { approval_status: "Approved" }
         });
 
@@ -83,10 +89,16 @@ exports.trancheTwo = async (req, res) => {
 
     const datagot = req.body;
     try {
+        // const tranchemain = await tranche_details.findAll({
+        //     attributes: [
+        //         "tranche_id", "sanction_id", "lender_code"
+        //     ], where: { approval_status: "Approved" }
+        // });
         const tranchemain = await tranche_details.findAll({
             attributes: [
-                "tranche_id", "sanction_id", "lender_code"
-            ], where: { approval_status: "Approved" }
+                "tranche_id", "sanction_id", "lender_code", "interest_start_date"
+            ]
+            // , where: { approval_status: "Approved" }
         });
 
         return res.status(201).json({ success: true, data: tranchemain });
@@ -96,43 +108,128 @@ exports.trancheTwo = async (req, res) => {
     }
 }
 
+exports.trancheCheck = async (req, res) => {
 
+    const datagot = req.body;
+    try {
+        // const tranchemain = await tranche_details.findAll({
+        //     attributes: [
+        //         "tranche_id", "sanction_id", "lender_code"
+        //     ], where: { approval_status: "Approved" }
+        // });
+        const tranchemain = await tranche_details_staging.findAll({
+            attributes: [
+                "tranche_id", "sanction_id", "lender_code"
+            ]
+            // , where: { approval_status: "Approved" }
+        });
+
+        return res.status(201).json({ success: true, data: tranchemain });
+    } catch (error) {
+        console.error("Error fetching tranche:", error);
+        return res.status(500).json({ success: false, message: "Server Error", error: error.message });
+    }
+}
 
 // Tranche View get by tranche_id Page API
 exports.trancheView = async (req, res) => {
-    const { lender_code, sanction_id, tranche_id, approval_status, updatedat } = req.query;
-    const originalDate = new Date(updatedat);
-    const updatedDate = new Date(originalDate.getTime() + (5 * 60 + 30) * 60 * 1000);
-    console.log("backend tranche 5 getall: ", lender_code, sanction_id, tranche_id, approval_status, updatedDate);
-    // console.log("backend 2 getall: ", tranche_id, approval_status);
+    const { lender_code, id, sanction_id, tranche_id, approval_status, updatedat } = req.query;
+    // const originalDate = new Date(updatedat);
+    // const updatedDate = new Date(originalDate.getTime() + (5 * 60 + 30) * 60 * 1000);
+    // console.log("backend tranche 5 getall: ", lender_code, sanction_id, tranche_id, approval_status, updatedDate);
+    // console.log("backend 5 getall: ", lender_code, id, sanction_id, tranche_id, approval_status);
     try {
         if (approval_status === 'Approved') {
             const tranche = await tranche_details.findOne({
-                where: { lender_code: lender_code, sanction_id: sanction_id, tranche_id: tranche_id, approval_status: approval_status, updatedat: updatedDate }
+                where: {
+                    lender_code: lender_code, sanction_id: sanction_id, tranche_id: tranche_id, approval_status: approval_status
+                    // , updatedat: updatedDate 
+                }
             });
             if (tranche) {
-                return res.status(200).json({ tranche });
+                // Now get the repayment_type from repayment_schedule
+                const repayment = await repayment_schedule_staging.findOne({
+                    where: {
+                        lender_code: lender_code,
+                        sanction_id: sanction_id,
+                        tranche_id: tranche_id,
+                        // due_date: tranche.due_date
+                    },
+                    attributes: ['repayment_type']
+                });
+
+                if (repayment) {
+                    return res.status(200).json({
+                        tranche,
+                        repayment_type: repayment.repayment_type
+                    });
+                } else {
+                    // return res.status(404).json({ message: "Repayment schedule not found" });
+                    return res.status(200).json({
+                        tranche,
+                    });
+                }
             } else {
                 return res.status(404).json({ message: "Approved Tranche not found" });
             }
         } else if (approval_status === 'Approval Pending') {
             const tranche = await tranche_details_staging.findOne({
-                where: { lender_code: lender_code, sanction_id: sanction_id, tranche_id: tranche_id, approval_status: approval_status, updatedat: updatedDate }
+                where: {
+                    lender_code: lender_code, sanction_id: sanction_id, tranche_id: tranche_id, approval_status: approval_status
+                    // , updatedat: updatedDate 
+                }
             });
             if (tranche) {
-                return res.status(200).json({ tranche });
+                const repayment = await repayment_schedule_staging.findOne({
+                    where: {
+                        lender_code: lender_code,
+                        sanction_id: sanction_id,
+                        tranche_id: tranche_id,
+                        // due_date: tranche.due_date
+                    },
+                    attributes: ['repayment_type']
+                });
+
+                if (repayment) {
+                    return res.status(200).json({
+                        tranche,
+                        repayment_type: repayment.repayment_type
+                    });
+                } else {
+                    return res.status(404).json({ message: "Repayment schedule not found" });
+                }
             } else {
-                return res.status(404).json({ message: "Approval Pending Tranche not found" });
+                return res.status(404).json({ message: "Approved Tranche not found" });
             }
         }
         else if (approval_status === 'Rejected') {
             const tranche = await tranche_details_staging.findOne({
-                where: { lender_code: lender_code, sanction_id: sanction_id, tranche_id: tranche_id, approval_status: approval_status, updatedat: updatedDate }
+                where: {
+                    lender_code: lender_code, sanction_id: sanction_id, tranche_id: tranche_id, approval_status: approval_status
+                    // , updatedat: updatedDate
+                }
             });
             if (tranche) {
-                return res.status(200).json({ tranche });
+                const repayment = await repayment_schedule_staging.findOne({
+                    where: {
+                        lender_code: lender_code,
+                        sanction_id: sanction_id,
+                        tranche_id: tranche_id,
+                        // due_date: tranche.due_date
+                    },
+                    attributes: ['repayment_type']
+                });
+
+                if (repayment) {
+                    return res.status(200).json({
+                        tranche,
+                        repayment_type: repayment.repayment_type
+                    });
+                } else {
+                    return res.status(404).json({ message: "Repayment schedule not found" });
+                }
             } else {
-                return res.status(404).json({ message: "Rejected Tranche not found" });
+                return res.status(404).json({ message: "Approved Tranche not found" });
             }
         } else {
             return res.status(400).json({ message: "Invalid approval status" });
@@ -149,39 +246,74 @@ exports.trancheUpdate = async (req, res) => {
     const { sanction_id, tranche_id, lender_code, user_type } = req.body;
     const data = req.body;
     data.id = null;
-    console.log("data: ", data);
+    // console.log("data: ", data);
     const newData = data;
-    console.log("new object data: ", newData);
+    // console.log("new object data: ", newData);
     try {
         const JWT_SECRET = process.env.JWT_SECRET;
         const decoded = jwt.verify(data.createdby, JWT_SECRET);
-        // Check if the sanction exists in sanction_details with approval_status: "Approved"
-        const existingSanction = await tranche_details.findOne({
+
+        // 🔐 Global check for any pending approval record in staging
+        const existingStagingLender = await tranche_details_staging.findOne({
             where: {
-                sanction_id: sanction_id,
-                lender_code: lender_code,
-                tranche_id: tranche_id,
+                lender_code,
+                sanction_id,
+                tranche_id,
+                approval_status: "Approval Pending"
+            }
+        });
+
+        if (existingStagingLender) {
+            return res.status(400).json({
+                status: "error",
+                message: "There is already a record in progress. No further updates allowed until approved or rejected."
+            });
+        }
+
+        // Check for Approved record in lender_master
+        const existingLender = await tranche_details.findOne({
+            where: {
+                lender_code,
+                sanction_id,
+                tranche_id,
                 approval_status: "Approved"
             }
         });
 
         // Check for Rejected records in staging
-        const rejectedStagingSanction = await tranche_details_staging.findAll({
-            where: { lender_code: lender_code, sanction_id: sanction_id, tranche_id: tranche_id, approval_status: "Rejected" }
+        const rejectedStagingLenders = await tranche_details_staging.findAll({
+            where: {
+                lender_code,
+                sanction_id,
+                tranche_id,
+                approval_status: "Rejected"
+            }
         });
 
-        // NEW RULE: If user_type = "N", check lender_master for duplicate
+        // Case 1: user_type === "N" (New record)
         if (user_type === "N") {
-
             const existsInMaster = await tranche_details.findOne({
-                where: { sanction_id: sanction_id, lender_code: lender_code, tranche_id: tranche_id }
+                where: {
+                    lender_code,
+                    sanction_id,
+                    tranche_id
+                }
             });
+
             if (existsInMaster) {
-                return res.status(400).json({
-                    status: "error",
-                    message: "This sanction_id,lender_code,Tranche_id combination already exists. Cannot create new record."
+
+            }
+
+            let updatedFields = [];
+            if (rejectedStagingLenders.length > 0) {
+                const lastRejected = rejectedStagingLenders[rejectedStagingLenders.length - 1];
+                Object.keys(data).forEach((key) => {
+                    if (data[key] !== lastRejected[key]) {
+                        updatedFields.push(key);
+                    }
                 });
             }
+
             const newRecord = {
                 ...data,
                 createdat: new Date(),
@@ -189,7 +321,7 @@ exports.trancheUpdate = async (req, res) => {
                 approval_status: "Approval Pending",
                 createdby: decoded.id,
                 updatedby: decoded.id,
-                user_type: data.user_type, // Update to "U"
+                updated_fields: updatedFields,
                 id: null
             };
 
@@ -197,12 +329,13 @@ exports.trancheUpdate = async (req, res) => {
 
             return res.status(201).json({
                 status: "success",
-                message: "New ROC Form created.",
-                NewStagingRecord: newStagingRecord
+                message: "New Tranche created .",
+                NewStagingRecord: newStagingRecord,
+                updatedFields
             });
         }
 
-        // If user_type is "U", skip master check and insert directly
+        // Case 2: user_type === "U" (Create update request directly)
         if (user_type === "U") {
             const newRecord = {
                 ...data,
@@ -211,45 +344,26 @@ exports.trancheUpdate = async (req, res) => {
                 approval_status: "Approval Pending",
                 createdby: decoded.id,
                 updatedby: decoded.id,
-                user_type: "U",
                 id: null
             };
 
             const newStagingRecord = await tranche_details_staging.create(newRecord);
-            console.log("record: ", newRecord)
 
             return res.status(201).json({
                 status: "success",
-                message: "Record inserted for user_type U.",
+                message: "Record inserted.",
                 NewStagingRecord: newStagingRecord
             });
         }
 
-
-        // Proceed with update flow if existingSanction found (edit case)
+        // Case 3: If record exists in master, compare and stage updates
         let updatedFields = [];
-        if (existingSanction) {
+        if (existingLender) {
             Object.keys(newData).forEach((key) => {
-                if (newData[key] !== existingSanction[key]) {
+                if (newData[key] !== existingLender[key]) {
                     updatedFields.push(key);
                 }
             });
-
-            const existingStagingLender = await tranche_details_staging.findOne({
-                where: {
-                    lender_code: lender_code,
-                    sanction_id: sanction_id,
-                    tranche_id: tranche_id,
-                    approval_status: "Approval Pending"
-                }
-            });
-
-            if (existingStagingLender) {
-                return res.status(400).json({
-                    status: "error",
-                    message: "There is already a record in progress for edit, no further updates allowed!"
-                });
-            }
 
             const recordWithPendingApproval = {
                 ...data,
@@ -258,7 +372,6 @@ exports.trancheUpdate = async (req, res) => {
                 updated_fields: updatedFields,
                 approval_status: "Approval Pending",
                 id: null,
-                user_type: "U",
                 createdby: decoded.id,
                 updatedby: decoded.id
             };
@@ -267,32 +380,15 @@ exports.trancheUpdate = async (req, res) => {
 
             return res.status(201).json({
                 status: "success",
-                message: "Tranche Details update request is in progress. No further updates allowed until approved.",
+                message: "Tranche update request is in progress. No further updates allowed until approved.",
                 NewStagingRecord: newStagingRecord,
-                updatedFields: updatedFields
+                updatedFields
             });
         }
 
-        // Check for pending edits again
-        const existingStagingLender = await tranche_details_staging.findOne({
-            where: {
-                lender_code: lender_code,
-                sanction_id: sanction_id,
-                tranche_id: tranche_id,
-                approval_status: "Approval Pending"
-            }
-        });
-
-        if (existingStagingLender) {
-            return res.status(400).json({
-                status: "error",
-                message: "Tranche Details already exists, no further updates allowed until approved."
-            });
-        }
-
-        // If rejected record exists and master doesn't have this code, create new
-        if (!existingSanction && rejectedStagingSanction.length > 0) {
-            const lastRejected = rejectedStagingSanction[rejectedStagingSanction.length - 1];
+        // Case 4: If no approved record but previously rejected exists
+        if (!existingLender && rejectedStagingLenders.length > 0) {
+            const lastRejected = rejectedStagingLenders[rejectedStagingLenders.length - 1];
 
             updatedFields = [];
             Object.keys(newData).forEach((key) => {
@@ -308,7 +404,7 @@ exports.trancheUpdate = async (req, res) => {
                 approval_status: "Approval Pending",
                 createdby: decoded.id,
                 updatedby: decoded.id,
-                // user_type: "U",
+                user_type: "U",
                 updated_fields: updatedFields,
                 id: null
             };
@@ -317,28 +413,32 @@ exports.trancheUpdate = async (req, res) => {
 
             return res.status(201).json({
                 status: "success",
-                message: "New record created for previously rejected lender_code.",
+                message: "New record created for previously rejected lenderCode,sanctionID,TrancheID.",
                 NewStagingRecord: newStagingRecord,
                 updatedFields: updatedFields
             });
         }
 
-        // Final fallback: try updating the existing staging record
-        const [updateCount, updatedRecords] = await tranche_details_staging.update(data, {
-            where: { lender_code: lender_code, sanction_id: sanction_id, tranche_id: tranche_id },
+        // Final fallback: attempt to update existing staging record
+        const [updateCount, updatedRecords] = await roc_forms_staging.update(data, {
+            where: {
+                lender_code,
+                sanction_id,
+                tranche_id
+            },
             returning: true
         });
 
         if (updateCount === 0) {
             return res.status(404).json({
                 status: "error",
-                message: "Trnache Details not found or no changes detected."
+                message: "Tranche not found or no changes detected."
             });
         }
 
         return res.status(200).json({
             status: "success",
-            message: "Trnache Details updated successfully.",
+            message: "Tranche updated successfully.",
             updatedFields: updatedFields,
             UpdatedLender: updatedRecords ? updatedRecords[0] : null
         });
@@ -348,6 +448,7 @@ exports.trancheUpdate = async (req, res) => {
         res.status(500).json({ status: "error", message: "Internal server error", error: error.message });
     }
 };
+
 
 
 // Tranche Details Approval API

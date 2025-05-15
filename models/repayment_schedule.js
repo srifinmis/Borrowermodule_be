@@ -44,7 +44,7 @@ module.exports = function(sequelize, DataTypes) {
       allowNull: false
     },
     createdby: {
-      type: DataTypes.STRING(10),
+      type: DataTypes.STRING(50),
       allowNull: true
     },
     createdat: {
@@ -53,7 +53,7 @@ module.exports = function(sequelize, DataTypes) {
       defaultValue: Sequelize.Sequelize.literal('CURRENT_TIMESTAMP')
     },
     updatedby: {
-      type: DataTypes.STRING(10),
+      type: DataTypes.STRING(50),
       allowNull: false
     },
     updatedat: {
@@ -71,6 +71,34 @@ module.exports = function(sequelize, DataTypes) {
         model: 'lender_master',
         key: 'lender_code'
       }
+    },
+    opening_balance: {
+      type: DataTypes.BIGINT,
+      allowNull: true
+    },
+    closing_balance: {
+      type: DataTypes.BIGINT,
+      allowNull: true
+    },
+    from_date: {
+      type: DataTypes.DATEONLY,
+      allowNull: true
+    },
+    interest_days: {
+      type: DataTypes.INTEGER,
+      allowNull: true
+    },
+    interest_rate: {
+      type: DataTypes.DECIMAL,
+      allowNull: true
+    },
+    emi_sequence: {
+      type: DataTypes.INTEGER,
+      allowNull: true
+    },
+    repayment_type: {
+      type: DataTypes.STRING(200),
+      allowNull: true
     }
   }, {
     sequelize,

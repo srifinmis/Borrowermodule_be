@@ -1,3 +1,4 @@
+
 const { sequelize } = require("../config/db");
 const initModels = require("../models/init-models");
 const { Op } = require("sequelize");
@@ -10,7 +11,7 @@ const { lender_master_staging, lender_master } = models;
 
 exports.lenderCreate = async (req, res) => {
     const data = req.body;
-    // console.log("DATA:", data.createdby);
+    console.log("DATA lender add:", data);
     // console.log("Data2:", data.updatedby);
     let temp = data.createdby;
     const JWT_SECRET = process.env.JWT_SECRET;
@@ -19,25 +20,52 @@ exports.lenderCreate = async (req, res) => {
     const lenderData = {
         lender_code: data.lender_code,
         lender_name: data.lender_name,
-        lender_type: data.lender_type,
-        lender_address_1: data.lender_address_1,
-        lender_address_2: data.lender_address_2,
-        lender_address_3: data.lender_address_3,
-        lender_contact_1: data.lender_contact_1,
-        lender_contact_2: data.lender_contact_2 || null,
-        lender_contact_3: data.lender_contact_3 || null,
-        lender_email_id_1: data.lender_email_id_1,
-        lender_email_id_2: data.lender_email_id_2 || null,
-        lender_email_id_3: data.lender_email_id_3 || null,
-        lender_spoc_name: data.lender_spoc_name,
-        lender_spoc_contact: data.lender_spoc_contact,
-        lender_spoc_email: data.lender_spoc_email,
         lender_escalation_name: data.lender_escalation_name || null,
         lender_escalation_contact: data.lender_escalation_contact || null,
         lender_escalation_email: data.lender_escalation_email || null,
+        addr1_line1: data.addr1_line1,
+        addr1_line2: data.addr1_line2,
+        addr1_line3: data.addr1_line3,
+        addr1_contact1: data.addr1_contact1,
+        addr1_contact2: data.addr1_contact2,
+        addr1_contact3: data.addr1_contact3,
+        addr1_email1: data.addr1_email1,
+        addr1_email2: data.addr1_email2,
+        addr1_email3: data.addr1_email3,
+        addr1_spoc_name: data.addr1_spoc_name,
+        addr1_spoc_contact: data.addr1_spoc_contact,
+        addr1_spoc_email: data.addr1_spoc_email,
+
+        addr2_line1: data.addr2_line1,
+        addr2_line2: data.addr2_line2,
+        addr2_line3: data.addr2_line3,
+        addr2_contact1: data.addr2_contact1,
+        addr2_contact2: data.addr2_contact2,
+        addr2_contact3: data.addr2_contact3,
+        addr2_email1: data.addr2_email1,
+        addr2_email2: data.addr2_email2,
+        addr2_email3: data.addr2_email3,
+        addr2_spoc_name: data.addr2_spoc_name,
+        addr2_spoc_contact: data.addr2_spoc_contact,
+        addr2_spoc_email: data.addr2_spoc_email,
+
+        addr3_line1: data.addr3_line1,
+        addr3_line2: data.addr3_line2,
+        addr3_line3: data.addr3_line3,
+        addr3_contact1: data.addr3_contact1,
+        addr3_contact2: data.addr3_contact2,
+        addr3_contact3: data.addr3_contact3,
+        addr3_email1: data.addr3_email1,
+        addr3_email2: data.addr3_email2,
+        addr3_email3: data.addr3_email3,
+        addr3_spoc_name: data.addr3_spoc_name,
+        addr3_spoc_contact: data.addr3_spoc_contact,
+        addr3_spoc_email: data.addr3_spoc_email,
+
+        lender_type: data.lender_type,
         status: data.status,
-        createdat: new Date(),
-        updatedat: new Date(),
+        // createdat: new Date(),
+        // updatedat: new Date(),
         createdby: decoded.id || null,
         updatedby: decoded.id || null,
         remarks: data.remarks || null,
@@ -53,6 +81,26 @@ exports.lenderCreate = async (req, res) => {
         res.status(500).json({ message: "Internal server error", error: error.message });
     }
 };
+exports.lenderCheck = async (req, res) => {
+    try {
+
+        // const Lenderget = await lender_master.findAll({
+        //     attributes: ["lender_code", "lender_name"],
+        // });
+        const Lenderget = await lender_master_staging.findAll({
+            attributes: ["lender_code", "lender_name"],
+        });
+        if (!Lenderget || Lenderget.length === 0) {
+            return res.status(404).json({ message: "No Pending Lenders found" });
+        }
+
+        // const Lenderget = await lender_master
+        res.status(201).json({ message: "Lender Fetch successfully", data: Lenderget });
+    } catch (error) {
+        console.error("Login Error:", error);
+        res.status(500).json({ message: "Internal server error", error: error.message });
+    }
+}
 
 // // LenderUpdate Data Staging and Main tables
 
@@ -68,6 +116,21 @@ exports.lenderupdate = async (req, res) => {
         const JWT_SECRET = process.env.JWT_SECRET;
         const decoded = jwt.verify(data.createdby, JWT_SECRET);
 
+        // 🔐 Global check for any pending approval record in staging
+        const existingStagingLender = await lender_master_staging.findOne({
+            where: {
+                lender_code: lender_code,
+                approval_status: "Approval Pending"
+            }
+        });
+
+        if (existingStagingLender) {
+            return res.status(400).json({
+                status: "error",
+                message: "There is already a record in progress. No further updates allowed until approved or rejected."
+            });
+        }
+
         // Check for Approved record in lender_master
         const existingLender = await lender_master.findOne({
             where: {
@@ -81,7 +144,7 @@ exports.lenderupdate = async (req, res) => {
             where: { lender_code: lender_code, approval_status: "Rejected" }
         });
 
-        // NEW RULE: If user_type = "N", check lender_master for duplicate
+        // Case 1: user_type === "N" (New record)
         if (user_type === "N") {
             const existsInMaster = await lender_master.findOne({
                 where: { lender_code: lender_code }
@@ -94,6 +157,16 @@ exports.lenderupdate = async (req, res) => {
                 });
             }
 
+            let updatedFields = [];
+            if (rejectedStagingLenders.length > 0) {
+                const lastRejected = rejectedStagingLenders[rejectedStagingLenders.length - 1];
+                Object.keys(data).forEach((key) => {
+                    if (data[key] !== lastRejected[key]) {
+                        updatedFields.push(key);
+                    }
+                });
+            }
+
             const newRecord = {
                 ...data,
                 createdat: new Date(),
@@ -101,7 +174,7 @@ exports.lenderupdate = async (req, res) => {
                 approval_status: "Approval Pending",
                 createdby: decoded.id,
                 updatedby: decoded.id,
-                user_type: "U", // Update to "U"
+                updated_fields: updatedFields,
                 id: null
             };
 
@@ -110,11 +183,12 @@ exports.lenderupdate = async (req, res) => {
             return res.status(201).json({
                 status: "success",
                 message: "New lender created with user_type updated to 'U'.",
-                NewStagingRecord: newStagingRecord
+                NewStagingRecord: newStagingRecord,
+                updatedFields
             });
         }
 
-        // If user_type is "U", skip master check and insert directly
+        // Case 2: user_type === "U" (Create update request directly)
         if (user_type === "U") {
             const newRecord = {
                 ...data,
@@ -130,12 +204,12 @@ exports.lenderupdate = async (req, res) => {
 
             return res.status(201).json({
                 status: "success",
-                message: "Record inserted .",
+                message: "Record inserted.",
                 NewStagingRecord: newStagingRecord
             });
         }
 
-        // Proceed with update flow if existingLender found (edit case)
+        // Case 3: If record exists in master, compare and stage updates
         let updatedFields = [];
         if (existingLender) {
             Object.keys(newData).forEach((key) => {
@@ -143,20 +217,6 @@ exports.lenderupdate = async (req, res) => {
                     updatedFields.push(key);
                 }
             });
-
-            const existingStagingLender = await lender_master_staging.findOne({
-                where: {
-                    lender_code: lender_code,
-                    approval_status: "Approval Pending"
-                }
-            });
-
-            if (existingStagingLender) {
-                return res.status(400).json({
-                    status: "error",
-                    message: "There is already a record in progress for edit, no further updates allowed!"
-                });
-            }
 
             const recordWithPendingApproval = {
                 ...data,
@@ -175,26 +235,11 @@ exports.lenderupdate = async (req, res) => {
                 status: "success",
                 message: "Lender update request is in progress. No further updates allowed until approved.",
                 NewStagingRecord: newStagingRecord,
-                updatedFields: updatedFields
+                updatedFields
             });
         }
 
-        // Check for pending edits again
-        const existingStagingLender = await lender_master_staging.findOne({
-            where: {
-                lender_code: lender_code,
-                approval_status: "Approval Pending"
-            }
-        });
-
-        if (existingStagingLender) {
-            return res.status(400).json({
-                status: "error",
-                message: "Lender already exists, no further updates allowed until approved."
-            });
-        }
-
-        // If rejected record exists and master doesn't have this code, create new
+        // Case 4: If no approved record but previously rejected exists
         if (!existingLender && rejectedStagingLenders.length > 0) {
             const lastRejected = rejectedStagingLenders[rejectedStagingLenders.length - 1];
 
@@ -227,7 +272,7 @@ exports.lenderupdate = async (req, res) => {
             });
         }
 
-        // Final fallback: try updating the existing staging record
+        // Final fallback: attempt to update existing staging record
         const [updateCount, updatedRecords] = await lender_master_staging.update(data, {
             where: { lender_code: lender_code },
             returning: true
@@ -256,6 +301,7 @@ exports.lenderupdate = async (req, res) => {
 
 
 exports.lenderApprove = async (req, res) => {
+    console.log("approval lender: ", req.body)
     try {
         // Ensure req.body is an array for bulk insert
         if (!Array.isArray(req.body)) {
@@ -382,14 +428,14 @@ exports.getLenders = async (req, res) => {
     try {
         const lenders = await lender_master_staging.findAll({
             attributes: [
-                "lender_code", "lender_name", "lender_type", "status", "lender_email_id_1", "createdat", "updatedat", "approval_status"
+                "lender_code", "lender_name", "lender_type", "status", "lender_escalation_email", "createdat", "updatedat", "approval_status"
             ], where: {
                 approval_status: { [Op.or]: ["Approval Pending", "Rejected"] }
             }
         });
         const lendermain = await lender_master.findAll({
             attributes: [
-                "lender_code", "lender_name", "lender_type", "status", "lender_email_id_1", "createdat", "updatedat", "approval_status"
+                "lender_code", "lender_name", "lender_type", "status", "lender_escalation_email", "createdat", "updatedat", "approval_status"
             ], where: { approval_status: "Approved" }
         });
 
@@ -405,40 +451,62 @@ exports.getLenders = async (req, res) => {
 exports.getLendesAll = async (req, res) => {
     const { lender_code, approval_status, lender_name, updatedat } = req.query;
 
-    const originalDate = new Date(updatedat);
-    const updatedDate = new Date(originalDate.getTime() + (5 * 60 + 30) * 60 * 1000);
-    console.log("got: ", lender_code, approval_status, lender_name, updatedat)
+    // const originalDateUTC = new Date(updatedat);
+    // const originalDateLocal = new Date(originalDateUTC.getTime() + (5.5 * 60 * 60 * 1000)); // Adjust for IST (+5:30)
+    // const originalDateLocal = originalDateUTC;
+    // Optional: Use ±500ms range to avoid strict timestamp issues
+    // const start = new Date(originalDateLocal.getTime() - 500);
+    // const end = new Date(originalDateLocal.getTime() + 500);
+    // console.log("date format lender (UTC input):", updatedat);
+    // console.log("converted to local date (for DB match):", originalDateLocal);
+
+    console.log("got:", lender_code, approval_status, lender_name, updatedat);
+    // console.log(typeof updatedat);
+    // console.log("Date Object:", new Date(updatedat));
+
     try {
         if (approval_status === 'Approved') {
             const lender = await lender_master.findOne({
-                where: { lender_code, approval_status: approval_status, lender_name: lender_name, updatedat: updatedDate }
+                where: {
+                    lender_code, approval_status: approval_status, lender_name: lender_name,
+                    // updatedat: updatedat
+                    // updatedat: {
+                    //     [Op.between]: [start, end]
+                    // }
+                }
             });
             if (lender) {
                 return res.status(200).json({ lender });
             } else {
-                return res.status(404).json({ message: "Approved lender not found" });
+                return res.status(404).json({ message: "Approved lender not found", error: error.message });
             }
         } else if (approval_status === 'Approval Pending') {
             // Check if lender_code and approval_status is "Approval Pending" in lender_master_staging
             const lender = await lender_master_staging.findOne({
-                where: { lender_code, approval_status: approval_status, lender_name: lender_name, updatedat: updatedDate }
+                where: {
+                    lender_code, approval_status: approval_status, lender_name: lender_name
+                    // , updatedat: updatedat 
+                }
             });
 
             if (lender) {
                 return res.status(200).json({ lender });
             } else {
-                return res.status(404).json({ message: "Approval Pending lender not found" });
+                return res.status(404).json({ message: "Approval Pending lender not found", error: error.message });
             }
         } else if (approval_status === 'Rejected') {
             // Check if lender_code and approval_status is "Approval Pending" in lender_master_staging
             const lender = await lender_master_staging.findOne({
-                where: { lender_code, approval_status: approval_status, lender_name: lender_name, updatedat: updatedDate }
+                where: {
+                    lender_code, approval_status: approval_status, lender_name: lender_name
+                    // , updatedat: updatedat
+                }
             });
 
             if (lender) {
                 return res.status(200).json({ lender });
             } else {
-                return res.status(404).json({ message: "Rejected lender not found" });
+                return res.status(404).json({ message: "Rejected lender not found", error: error.message });
             }
         } else {
             return res.status(400).json({ message: "Invalid approval status" });

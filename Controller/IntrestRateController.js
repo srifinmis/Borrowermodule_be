@@ -21,7 +21,7 @@ exports.intrestCreate = async (req, res) => {
         sanction_id: data.sanction_id,
         lender_code: data.lender_code,
         user_type: "N",
-        createdat: new Date(),
+        // createdat: new Date(),
         updatedat: data.updatedat,
         createdby: decoded.id || "vishal",
         updatedby: data.updatedby || "vishal",
@@ -44,9 +44,15 @@ exports.interestThree = async (req, res) => {
     try {
         const tranche = await interest_rate_changes.findAll({
             attributes: [
-                "lender_code", "sanction_id", "tranche_id"
-            ], where: { approval_status: "Approved" }
+                'lender_code', 'sanction_id', 'tranche_id'
+            ],
+            include: [{
+                model: tranche_details,
+                as: 'tranche',
+                attributes: ['interest_start_date']
+            }]
         });
+
 
         return res.status(201).json({ success: true, data: tranche });
     } catch (error) {
@@ -80,27 +86,35 @@ exports.intrestFetch = async (req, res) => {
 
 exports.intrestView = async (req, res) => {
     const { lender_code, sanction_id, tranche_id, approval_status, createdat } = req.query;
-    const originalDate = new Date(createdat);
-    const createDate = new Date(originalDate.getTime() + (5 * 60 + 30) * 60 * 1000);
-    console.log("backend Interest 5 getall: ", lender_code, sanction_id, tranche_id, approval_status, createDate);
+    // const originalDate = new Date(createdat);
+    // const createDate = new Date(originalDate.getTime() + (5 * 60 + 30) * 60 * 1000);
+    // console.log("backend Interest 5 getall: ", lender_code, sanction_id, tranche_id, approval_status, createDate);
 
     // const { sanction_id, approval_status } = req.query;
     // console.log("backend 2 getall: ", tranche_id, approval_status);
     try {
         if (approval_status === 'Approved') {
             const interest = await interest_rate_changes.findOne({
-                where: { lender_code: lender_code, sanction_id: sanction_id, tranche_id: tranche_id, approval_status: approval_status, createdat: createDate }
+                where: {
+                    lender_code: lender_code, sanction_id: sanction_id, tranche_id: tranche_id, approval_status: approval_status
+                    // , createdat: createDate 
+                }
             });
             if (interest) {
+                // console.log("Data View: ", interest)
                 return res.status(200).json({ interest });
             } else {
                 return res.status(404).json({ message: "Approved Interest not found" });
             }
         } else if (approval_status === 'Approval Pending') {
             const interest = await interest_rate_changes_staging.findOne({
-                where: { lender_code: lender_code, sanction_id: sanction_id, tranche_id: tranche_id, approval_status: approval_status, createdat: createDate }
+                where: {
+                    lender_code: lender_code, sanction_id: sanction_id, tranche_id: tranche_id, approval_status: approval_status
+                    // , createdat: createDate
+                }
             });
             if (interest) {
+                // console.log("Data View: ", interest)
                 return res.status(200).json({ interest });
             } else {
                 return res.status(404).json({ message: "Approval Pending Interest not found" });
@@ -108,9 +122,13 @@ exports.intrestView = async (req, res) => {
         }
         else if (approval_status === 'Rejected') {
             const interest = await interest_rate_changes_staging.findOne({
-                where: { lender_code: lender_code, sanction_id: sanction_id, tranche_id: tranche_id, approval_status: approval_status, createdat: createDate }
+                where: {
+                    lender_code: lender_code, sanction_id: sanction_id, tranche_id: tranche_id, approval_status: approval_status
+                    // , createdat: createDate 
+                }
             });
             if (interest) {
+                // console.log("Data View: ", interest)
                 return res.status(200).json({ interest });
             } else {
                 return res.status(404).json({ message: "Rejected Interest not found" });
@@ -118,6 +136,7 @@ exports.intrestView = async (req, res) => {
         } else {
             return res.status(400).json({ message: "Invalid approval status" });
         }
+
 
     } catch (error) {
         console.error("Error fetching Interest:", error);
@@ -135,107 +154,129 @@ exports.intrestUpdate = async (req, res) => {
     try {
         const JWT_SECRET = process.env.JWT_SECRET;
         const decoded = jwt.verify(data.createdby, JWT_SECRET);
-        // Check if the sanction exists in sanction_details with approval_status: "Approved"
-        const existingSanction = await interest_rate_changes.findOne({
+
+        // 🔐 Global check for any pending approval record in staging
+        const existingStagingLender = await interest_rate_changes_staging.findOne({
             where: {
-                sanction_id: sanction_id,
-                lender_code: lender_code,
-                tranche_id: tranche_id,
+                lender_code,
+                sanction_id,
+                tranche_id,
+                approval_status: "Approval Pending"
+            }
+        });
+
+        if (existingStagingLender) {
+            return res.status(400).json({
+                status: "error",
+                message: "There is already a record in progress. No further updates allowed until approved or rejected."
+            });
+        }
+
+        // Check for Approved record in lender_master
+        const existingLender = await interest_rate_changes.findOne({
+            where: {
+                lender_code,
+                sanction_id,
+                tranche_id,
                 approval_status: "Approved"
             }
         });
 
         // Check for Rejected records in staging
-        const rejectedStagingSanction = await interest_rate_changes_staging.findAll({
-            where: { lender_code: lender_code, sanction_id: sanction_id, tranche_id: tranche_id, approval_status: "Rejected" }
+        const rejectedStagingLenders = await interest_rate_changes_staging.findAll({
+            where: {
+                lender_code,
+                sanction_id,
+                tranche_id,
+                approval_status: "Rejected"
+            }
         });
 
-        // NEW RULE: If user_type = "N", check lender_master for duplicate
+        // Case 1: user_type === "N" (New record)
         if (user_type === "N") {
-
             const existsInMaster = await interest_rate_changes.findOne({
-                where: { sanction_id: sanction_id, lender_code: lender_code, tranche_id: tranche_id }
+                where: {
+                    lender_code,
+                    sanction_id,
+                    tranche_id
+                }
             });
+
             if (existsInMaster) {
                 return res.status(400).json({
                     status: "error",
-                    message: "This sanction_id,lender_code,Tranche_id combination already exists. Cannot create new record."
+                    message: "This lenderCode,sanctionID,TrancheID already exists in master. Cannot create new record."
                 });
             }
+
+            let updatedFields = [];
+            if (rejectedStagingLenders.length > 0) {
+                const lastRejected = rejectedStagingLenders[rejectedStagingLenders.length - 1];
+                Object.keys(data).forEach((key) => {
+                    if (data[key] !== lastRejected[key]) {
+                        updatedFields.push(key);
+                    }
+                });
+            }
+
             const newRecord = {
                 ...data,
                 createdat: new Date(),
+                updatedat: new Date(),
                 approval_status: "Approval Pending",
                 createdby: decoded.id,
                 updatedby: data.updatedby,
-                user_type: data.user_type, // Update to "U"
-                change_id: null
+                updated_fields: updatedFields,
+                id: null
             };
-
+            console.log("new update: ", newRecord)
             const newStagingRecord = await interest_rate_changes_staging.create(newRecord);
 
             return res.status(201).json({
                 status: "success",
-                message: "Interest Rate Form created.",
-                NewStagingRecord: newStagingRecord
+                message: "New Interest created .",
+                NewStagingRecord: newStagingRecord,
+                updatedFields
             });
         }
 
-        // If user_type is "U", skip master check and insert directly
+        // Case 2: user_type === "U" (Create update request directly)
         if (user_type === "U") {
             const newRecord = {
                 ...data,
                 createdat: new Date(),
+                updatedat: new Date(),
                 approval_status: "Approval Pending",
                 createdby: decoded.id,
                 updatedby: data.updatedby,
-                user_type: "U",
-                change_id: null
+                id: null
             };
 
             const newStagingRecord = await interest_rate_changes_staging.create(newRecord);
-            console.log("record: ", newRecord)
 
             return res.status(201).json({
                 status: "success",
-                message: "Record inserted for user_type U.",
+                message: "Record inserted.",
                 NewStagingRecord: newStagingRecord
             });
         }
 
-
-        // Proceed with update flow if existingSanction found (edit case)
+        // Case 3: If record exists in master, compare and stage updates
         let updatedFields = [];
-        if (existingSanction) {
+        if (existingLender) {
             Object.keys(newData).forEach((key) => {
-                if (newData[key] !== existingSanction[key]) {
+                if (newData[key] !== existingLender[key]) {
                     updatedFields.push(key);
                 }
             });
 
-            const existingStagingLender = await interest_rate_changes_staging.findOne({
-                where: {
-                    lender_code: lender_code,
-                    sanction_id: sanction_id,
-                    tranche_id: tranche_id,
-                    approval_status: "Approval Pending"
-                }
-            });
-
-            if (existingStagingLender) {
-                return res.status(400).json({
-                    status: "error",
-                    message: "There is already a record in progress for edit, no further updates allowed!"
-                });
-            }
-
             const recordWithPendingApproval = {
                 ...data,
                 createdat: new Date(),
+                updatedat: new Date(),
                 updated_fields: updatedFields,
                 approval_status: "Approval Pending",
-                change_id: null,
-                user_type: "U",
+                id: null,
                 createdby: decoded.id,
                 updatedby: data.updatedby
             };
@@ -244,32 +285,15 @@ exports.intrestUpdate = async (req, res) => {
 
             return res.status(201).json({
                 status: "success",
-                message: "Interest Rate update request is in progress. No further updates allowed until approved.",
+                message: "Interest update request is in progress. No further updates allowed until approved.",
                 NewStagingRecord: newStagingRecord,
-                updatedFields: updatedFields
+                updatedFields
             });
         }
 
-        // Check for pending edits again
-        const existingStagingLender = await interest_rate_changes_staging.findOne({
-            where: {
-                lender_code: lender_code,
-                sanction_id: sanction_id,
-                tranche_id: tranche_id,
-                approval_status: "Approval Pending"
-            }
-        });
-
-        if (existingStagingLender) {
-            return res.status(400).json({
-                status: "error",
-                message: "Tranche Details already exists, no further updates allowed until approved."
-            });
-        }
-
-        // If rejected record exists and master doesn't have this code, create new
-        if (!existingSanction && rejectedStagingSanction.length > 0) {
-            const lastRejected = rejectedStagingSanction[rejectedStagingSanction.length - 1];
+        // Case 4: If no approved record but previously rejected exists
+        if (!existingLender && rejectedStagingLenders.length > 0) {
+            const lastRejected = rejectedStagingLenders[rejectedStagingLenders.length - 1];
 
             updatedFields = [];
             Object.keys(newData).forEach((key) => {
@@ -281,39 +305,45 @@ exports.intrestUpdate = async (req, res) => {
             const recordPendingApproval = {
                 ...data,
                 createdat: new Date(),
+                updatedat: new Date(),
                 approval_status: "Approval Pending",
                 createdby: decoded.id,
                 updatedby: data.updatedby,
+                user_type: "U",
                 updated_fields: updatedFields,
-                change_id: null
+                id: null
             };
 
             const newStagingRecord = await interest_rate_changes_staging.create(recordPendingApproval);
 
             return res.status(201).json({
                 status: "success",
-                message: "New record created for previously rejected lender_code.",
+                message: "New record created for previously rejected lenderCode,sanctionID,TrancheID.",
                 NewStagingRecord: newStagingRecord,
                 updatedFields: updatedFields
             });
         }
 
-        // Final fallback: try updating the existing staging record
+        // Final fallback: attempt to update existing staging record
         const [updateCount, updatedRecords] = await interest_rate_changes_staging.update(data, {
-            where: { lender_code: lender_code, sanction_id: sanction_id, tranche_id: tranche_id },
+            where: {
+                lender_code,
+                sanction_id,
+                tranche_id
+            },
             returning: true
         });
 
         if (updateCount === 0) {
             return res.status(404).json({
                 status: "error",
-                message: "Interest Rate not found or no changes detected."
+                message: "Interest not found or no changes detected."
             });
         }
 
         return res.status(200).json({
             status: "success",
-            message: "Interest Rate updated successfully.",
+            message: "Interest updated successfully.",
             updatedFields: updatedFields,
             UpdatedLender: updatedRecords ? updatedRecords[0] : null
         });

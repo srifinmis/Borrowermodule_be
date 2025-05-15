@@ -39,7 +39,7 @@ module.exports = function(sequelize, DataTypes) {
       allowNull: false
     },
     createdby: {
-      type: DataTypes.STRING(10),
+      type: DataTypes.STRING(50),
       allowNull: false
     },
     createdat: {
@@ -61,6 +61,34 @@ module.exports = function(sequelize, DataTypes) {
     },
     user_type: {
       type: DataTypes.TEXT,
+      allowNull: true
+    },
+    opening_balance: {
+      type: DataTypes.BIGINT,
+      allowNull: true
+    },
+    closing_balance: {
+      type: DataTypes.BIGINT,
+      allowNull: true
+    },
+    from_date: {
+      type: DataTypes.DATEONLY,
+      allowNull: true
+    },
+    interest_days: {
+      type: DataTypes.INTEGER,
+      allowNull: true
+    },
+    interest_rate: {
+      type: DataTypes.DECIMAL,
+      allowNull: true
+    },
+    emi_sequence: {
+      type: DataTypes.INTEGER,
+      allowNull: true
+    },
+    repayment_type: {
+      type: DataTypes.STRING(200),
       allowNull: true
     }
   }, {

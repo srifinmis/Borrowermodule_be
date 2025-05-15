@@ -4,7 +4,7 @@ const { Op } = require("sequelize");
 const jwt = require("jsonwebtoken");
 
 const models = initModels(sequelize);
-const { lender_master, sanction_details_staging, sanction_details } = models;
+const { lender_master, lender_master_staging, sanction_details_staging, sanction_details } = models;
 
 
 //sending Sanction_Details 
@@ -58,7 +58,6 @@ exports.sanctionCreate = async (req, res) => {
     }
 };
 
-
 //Lender Codes Fetch  API
 exports.lenderCodes = async (req, res) => {
     const datagot = req.body;
@@ -68,8 +67,11 @@ exports.lenderCodes = async (req, res) => {
         const Lenderget = await lender_master.findAll({
             attributes: ["lender_code", "lender_name"],
         });
+        // const Lenderget = await lender_master_staging.findAll({
+        //     attributes: ["lender_code", "lender_name"],
+        // });
         if (!Lenderget || Lenderget.length === 0) {
-            return res.status(404).json({ message: "No Pending Tranches found" });
+            return res.status(404).json({ message: "No Pending Lender found" });
         }
 
         // const Lenderget = await lender_master
@@ -80,23 +82,87 @@ exports.lenderCodes = async (req, res) => {
     }
 };
 
+exports.sanctionCheck = async (req, res) => {
+    const datagot = req.body;
+    // console.log('Data from sanction id FD:  ', datagot);
+    try {
+
+        const sanctionget = await sanction_details_staging.findAll({
+            attributes: ["sanction_id", "lender_code"],
+        });
+        // console.log("roc: ", sanctionget)
+        // const Lenderget = await lender_master
+        res.status(201).json({ message: "Santion ID Fetch successfully", data: sanctionget });
+    } catch (error) {
+        console.error("Login Error:", error);
+        res.status(500).json({ message: "Internal server error", error: error.message });
+    }
+}
+
+
 // 
 // Sanction Staging from maintable get approved API all data
 exports.sanctionFetch = async (req, res) => {
-    const datagot = req.body;
+    const { token } = req.query;
+    // console.log("datagot fetch sanction: ", { token });
+    const JWT_SECRET = process.env.JWT_SECRET;
+    const temptoken = token;
+
     try {
+
+        const decoded = jwt.verify(temptoken, JWT_SECRET);
+        // console.log("Decoded Token:", decoded);
+
+        const emp_id = decoded.id;
+        const role = decoded.Role;
+
+        const isAdmin = Array.isArray(role) && role.includes("ADMIN");
+
+        const stagingWhereCondition = {
+            approval_status: { [Op.or]: ["Approval Pending", "Rejected"] }
+        };
+
+        if (!isAdmin) {
+            stagingWhereCondition[Op.or] = [
+                { createdby: emp_id },
+                { updatedby: emp_id }
+            ];
+        }
+
         const sanction = await sanction_details_staging.findAll({
             attributes: [
                 "lender_code", "sanction_id", "sanction_amount", "sanction_date", "createdat", "updatedat", "approval_status"
-            ], where: {
-                approval_status: { [Op.or]: ["Approval Pending", "Rejected"] }
-            }
+            ],
+            where: stagingWhereCondition,
+            //  where: {
+            //     approval_status: { [Op.or]: ["Approval Pending", "Rejected"] }
+            // }
         });
+
+        const mainWhereCondition = {
+            approval_status: "Approved"
+        };
+
+        if (!isAdmin) {
+            mainWhereCondition[Op.or] = [
+                { createdby: emp_id },
+                { updatedby: emp_id }
+            ];
+        }
 
         const sanctionmain = await sanction_details.findAll({
             attributes: [
                 "lender_code", "sanction_id", "sanction_amount", "sanction_date", "createdat", "updatedat", "approval_status"
-            ], where: { approval_status: "Approved" }
+            ],
+            // where: { approval_status: "Approved" },
+            where: mainWhereCondition,
+            include: [
+                {
+                    model: lender_master,
+                    as: 'lender_code_lender_master',
+                    attributes: ["lender_name"]
+                }
+            ]
         });
 
         return res.status(201).json({ success: true, data: sanction, mainData: sanctionmain });
@@ -109,14 +175,17 @@ exports.sanctionFetch = async (req, res) => {
 // Sanctiondeetails get by sanction_id Page API
 exports.sanctionView = async (req, res) => {
     const { sanction_id, lender_code, approval_status, updatedat } = req.query;
-    const originalDate = new Date(updatedat);
-    const updatedDate = new Date(originalDate.getTime() + (5 * 60 + 30) * 60 * 1000);
-    console.log("sanction backend getall: ", sanction_id, lender_code, approval_status, updatedDate)
+    // const originalDate = new Date(updatedat);
+    // const updatedDate = new Date(originalDate.getTime() + (5 * 60 + 30) * 60 * 1000);
+    // console.log("sanction backend getall: ", sanction_id, lender_code, approval_status, updatedDate)
     // console.log("sanction backend 2 getall: ", sanction_id, lender_code, approval_status, updatedat);
     try {
         if (approval_status === 'Approved') {
             const sanction = await sanction_details.findOne({
-                where: { sanction_id: sanction_id, lender_code: lender_code, approval_status: approval_status, updatedat: updatedDate }
+                where: {
+                    sanction_id: sanction_id, lender_code: lender_code, approval_status: approval_status
+                    // , updatedat: updatedDate 
+                }
             });
             if (sanction) {
                 return res.status(200).json({ sanction });
@@ -125,7 +194,10 @@ exports.sanctionView = async (req, res) => {
             }
         } else if (approval_status === 'Approval Pending') {
             const sanction = await sanction_details_staging.findOne({
-                where: { sanction_id: sanction_id, lender_code: lender_code, approval_status: approval_status, updatedat: updatedDate }
+                where: {
+                    sanction_id: sanction_id, lender_code: lender_code, approval_status: approval_status
+                    // , updatedat: updatedDate 
+                }
             });
             if (sanction) {
                 return res.status(200).json({ sanction });
@@ -135,7 +207,10 @@ exports.sanctionView = async (req, res) => {
         }
         else if (approval_status === 'Rejected') {
             const sanction = await sanction_details_staging.findOne({
-                where: { sanction_id: sanction_id, lender_code: lender_code, approval_status: approval_status, updatedat: updatedDate }
+                where: {
+                    sanction_id: sanction_id, lender_code: lender_code, approval_status: approval_status
+                    // , updatedat: updatedDate 
+                }
             });
             if (sanction) {
                 return res.status(200).json({ sanction });
@@ -158,38 +233,74 @@ exports.sanctionUpdate = async (req, res) => {
     const { sanction_id, lender_code, user_type } = req.body;
     const data = req.body;
     data.id = null;
-    console.log("data: ", data);
+    // console.log("data: ", data);
     const newData = data;
-    console.log("new object data: ", newData);
+    // console.log("new object data: ", newData);
+
     try {
         const JWT_SECRET = process.env.JWT_SECRET;
         const decoded = jwt.verify(data.createdby, JWT_SECRET);
-        // Check if the sanction exists in sanction_details with approval_status: "Approved"
-        const existingSanction = await sanction_details.findOne({
+
+        // 🔐 Global check for any pending approval record in staging
+        const existingStagingLender = await sanction_details_staging.findOne({
             where: {
-                sanction_id: sanction_id,
-                lender_code: lender_code,
+                lender_code,
+                sanction_id,
+                approval_status: "Approval Pending"
+            }
+        });
+
+        if (existingStagingLender) {
+            return res.status(400).json({
+                status: "error",
+                message: "There is already a record in progress. No further updates allowed until approved or rejected."
+            });
+        }
+
+        // Check for Approved record in lender_master
+        const existingLender = await sanction_details.findOne({
+            where: {
+                lender_code,
+                sanction_id,
                 approval_status: "Approved"
             }
         });
 
         // Check for Rejected records in staging
-        const rejectedStagingSanction = await sanction_details_staging.findAll({
-            where: { lender_code: lender_code, sanction_id: sanction_id, approval_status: "Rejected" }
+        const rejectedStagingLenders = await sanction_details_staging.findAll({
+            where: {
+                lender_code,
+                sanction_id,
+                approval_status: "Rejected"
+            }
         });
 
-        // NEW RULE: If user_type = "N", check lender_master for duplicate
+        // Case 1: user_type === "N" (New record)
         if (user_type === "N") {
-
             const existsInMaster = await sanction_details.findOne({
-                where: { sanction_id: sanction_id, lender_code: lender_code }
+                where: {
+                    lender_code,
+                    sanction_id,
+                }
             });
+
             if (existsInMaster) {
                 return res.status(400).json({
                     status: "error",
-                    message: "This sanction_id,lender_code combination already exists in master. Cannot create new record."
+                    message: "This lender_code already exists in master. Cannot create new record."
                 });
             }
+
+            let updatedFields = [];
+            if (rejectedStagingLenders.length > 0) {
+                const lastRejected = rejectedStagingLenders[rejectedStagingLenders.length - 1];
+                Object.keys(data).forEach((key) => {
+                    if (data[key] !== lastRejected[key]) {
+                        updatedFields.push(key);
+                    }
+                });
+            }
+
             const newRecord = {
                 ...data,
                 createdat: new Date(),
@@ -197,7 +308,7 @@ exports.sanctionUpdate = async (req, res) => {
                 approval_status: "Approval Pending",
                 createdby: decoded.id,
                 updatedby: decoded.id,
-                user_type: data.user_type, // Update to "U"
+                updated_fields: updatedFields,
                 id: null
             };
 
@@ -205,12 +316,13 @@ exports.sanctionUpdate = async (req, res) => {
 
             return res.status(201).json({
                 status: "success",
-                message: "New Sanction created.",
-                NewStagingRecord: newStagingRecord
+                message: "New Sanction created .",
+                NewStagingRecord: newStagingRecord,
+                updatedFields
             });
         }
 
-        // If user_type is "U", skip master check and insert directly
+        // Case 2: user_type === "U" (Create update request directly)
         if (user_type === "U") {
             const newRecord = {
                 ...data,
@@ -219,44 +331,26 @@ exports.sanctionUpdate = async (req, res) => {
                 approval_status: "Approval Pending",
                 createdby: decoded.id,
                 updatedby: decoded.id,
-                user_type: "U",
                 id: null
             };
 
             const newStagingRecord = await sanction_details_staging.create(newRecord);
-            console.log("record: ", newRecord)
 
             return res.status(201).json({
                 status: "success",
-                message: "Record inserted for user_type U.",
+                message: "Record inserted.",
                 NewStagingRecord: newStagingRecord
             });
         }
 
-
-        // Proceed with update flow if existingSanction found (edit case)
+        // Case 3: If record exists in master, compare and stage updates
         let updatedFields = [];
-        if (existingSanction) {
+        if (existingLender) {
             Object.keys(newData).forEach((key) => {
-                if (newData[key] !== existingSanction[key]) {
+                if (newData[key] !== existingLender[key]) {
                     updatedFields.push(key);
                 }
             });
-
-            const existingStagingLender = await sanction_details_staging.findOne({
-                where: {
-                    lender_code: lender_code,
-                    sanction_id: sanction_id,
-                    approval_status: "Approval Pending"
-                }
-            });
-
-            if (existingStagingLender) {
-                return res.status(400).json({
-                    status: "error",
-                    message: "There is already a record in progress for edit, no further updates allowed!"
-                });
-            }
 
             const recordWithPendingApproval = {
                 ...data,
@@ -265,7 +359,6 @@ exports.sanctionUpdate = async (req, res) => {
                 updated_fields: updatedFields,
                 approval_status: "Approval Pending",
                 id: null,
-                user_type: "U",
                 createdby: decoded.id,
                 updatedby: decoded.id
             };
@@ -276,29 +369,13 @@ exports.sanctionUpdate = async (req, res) => {
                 status: "success",
                 message: "Sanction update request is in progress. No further updates allowed until approved.",
                 NewStagingRecord: newStagingRecord,
-                updatedFields: updatedFields
+                updatedFields
             });
         }
 
-        // Check for pending edits again
-        const existingStagingLender = await sanction_details_staging.findOne({
-            where: {
-                lender_code: lender_code,
-                sanction_id: sanction_id,
-                approval_status: "Approval Pending"
-            }
-        });
-
-        if (existingStagingLender) {
-            return res.status(400).json({
-                status: "error",
-                message: "Sanction already exists, no further updates allowed until approved."
-            });
-        }
-
-        // If rejected record exists and master doesn't have this code, create new
-        if (!existingSanction && rejectedStagingSanction.length > 0) {
-            const lastRejected = rejectedStagingSanction[rejectedStagingSanction.length - 1];
+        // Case 4: If no approved record but previously rejected exists
+        if (!existingLender && rejectedStagingLenders.length > 0) {
+            const lastRejected = rejectedStagingLenders[rejectedStagingLenders.length - 1];
 
             updatedFields = [];
             Object.keys(newData).forEach((key) => {
@@ -314,7 +391,7 @@ exports.sanctionUpdate = async (req, res) => {
                 approval_status: "Approval Pending",
                 createdby: decoded.id,
                 updatedby: decoded.id,
-                // user_type: "U",
+                user_type: "U",
                 updated_fields: updatedFields,
                 id: null
             };
@@ -329,9 +406,12 @@ exports.sanctionUpdate = async (req, res) => {
             });
         }
 
-        // Final fallback: try updating the existing staging record
+        // Final fallback: attempt to update existing staging record
         const [updateCount, updatedRecords] = await sanction_details_staging.update(data, {
-            where: { lender_code: lender_code, sanction_id: sanction_id },
+            where: {
+                lender_code,
+                sanction_id,
+            },
             returning: true
         });
 
@@ -359,7 +439,7 @@ exports.sanctionUpdate = async (req, res) => {
 // Sanction Details Approval API
 exports.sanctionApprove = async (req, res) => {
     try {
-        console.log("approve sanction backend:", req.body)
+        // console.log("approve sanction backend:", req.body)
         if (!Array.isArray(req.body)) {
             return res.status(400).json({
                 message: "Invalid data format, expected an array of Sanction"
@@ -423,7 +503,7 @@ exports.sanctionApprove = async (req, res) => {
                 );
             })
         );
-        console.log("Update staging: ", updatedLenders)
+        // console.log("Update staging: ", updatedLenders)
 
         res.status(201).json({
             message: "Sanction added successfully",
@@ -443,7 +523,7 @@ exports.sanctionApprove = async (req, res) => {
 // SanctionDetails reject API
 exports.sanctionReject = async (req, res) => {
     try {
-        console.log("Received sanction Data:", req.body);
+        // console.log("Received sanction Data:", req.body);
 
         // Ensure req.body is an array for bulk insert
         if (!Array.isArray(req.body)) {

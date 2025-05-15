@@ -29,16 +29,16 @@ module.exports = function(sequelize, DataTypes) {
       defaultValue: Sequelize.Sequelize.literal('CURRENT_TIMESTAMP')
     },
     updatedat: {
-      type: DataTypes.DATE,
+      type: DataTypes.DATEONLY,
       allowNull: true,
       defaultValue: Sequelize.Sequelize.literal('CURRENT_TIMESTAMP')
     },
     createdby: {
-      type: DataTypes.STRING(10),
+      type: DataTypes.STRING(30),
       allowNull: false
     },
     updatedby: {
-      type: DataTypes.STRING(10),
+      type: DataTypes.STRING(30),
       allowNull: false
     },
     remarks: {

@@ -4,20 +4,22 @@ const { Op } = require("sequelize");
 const jwt = require("jsonwebtoken");
 
 const models = initModels(sequelize);
-const { sanction_details, roc_forms_staging, roc_forms } = models;
+const { sanction_details, roc_forms_staging, roc_forms, tranche_details } = models;
 
 //Sanction ID's Fetch  API
 exports.sanctionId = async (req, res) => {
     const datagot = req.body;
-    // console.log('Data from FD:  ', datagot);
+    // console.log('Data from sanction id FD:  ', datagot);
     try {
 
         const sanctionget = await sanction_details.findAll({
-            attributes: ["sanction_id", "lender_code", "sanction_amount"],
+            attributes: ["sanction_id", "lender_code", "sanction_amount", "sanction_date"],
         });
+        // console.log("roc: ", sanctionget)
+
 
         // const Lenderget = await lender_master
-        res.status(201).json({ message: "Sanction Fetch successfully", data: sanctionget });
+        res.status(201).json({ message: "Roc Fetch successfully", data: sanctionget });
     } catch (error) {
         console.error("Login Error:", error);
         res.status(500).json({ message: "Internal server error", error: error.message });
@@ -40,8 +42,8 @@ exports.rocCreate = async (req, res) => {
         date_of_form_filed_creation: data.date_of_form_filed_creation || null,
         due_date_satisfaction: data.due_date_satisfaction || null,
         date_of_filing_satisfaction: data.date_of_filing_satisfaction || null,
-        createdat: new Date(),
-        updatedat: new Date(),
+        // createdat: new Date(),
+        // updatedat: new Date(),
         createdby: decoded.id,
         updatedby: decoded.id,
         remarks: data.remarks || null,
@@ -91,7 +93,7 @@ exports.rocValidate = async (req, res) => {
     try {
         const { sanction_id, lender_code } = req.query;
         console.log("backend check rocforms:", sanction_id, lender_code)
-        const sanction = await roc_forms.findAll({
+        const sanction = await roc_forms_staging.findAll({
             where: { sanction_id, lender_code }
         });
 
@@ -110,13 +112,16 @@ exports.rocValidate = async (req, res) => {
 // roc get by sanction_id Page API
 exports.rocView = async (req, res) => {
     const { sanction_id, lender_code, approval_status, updatedat } = req.query;
-    const originalDate = new Date(updatedat);
-    const updatedDate = new Date(originalDate.getTime() + (5 * 60 + 30) * 60 * 1000);
-    console.log("backend roc 4 getall: ", lender_code, sanction_id, approval_status, updatedDate);
+    // const originalDate = new Date(updatedat);
+    // const updatedDate = new Date(originalDate.getTime() + (5 * 60 + 30) * 60 * 1000);
+    // console.log("backend roc 4 getall: ", lender_code, sanction_id, approval_status, updatedDate);
     try {
         if (approval_status === 'Approved') {
             const roc = await roc_forms.findOne({
-                where: { lender_code: lender_code, sanction_id: sanction_id, approval_status: approval_status, updatedat: updatedDate }
+                where: {
+                    lender_code: lender_code, sanction_id: sanction_id, approval_status: approval_status
+                    // , updatedat: updatedDate 
+                }
             });
             if (roc) {
                 return res.status(200).json({ roc });
@@ -125,7 +130,10 @@ exports.rocView = async (req, res) => {
             }
         } else if (approval_status === 'Approval Pending') {
             const roc = await roc_forms_staging.findOne({
-                where: { lender_code: lender_code, sanction_id: sanction_id, approval_status: approval_status, updatedat: updatedDate }
+                where: {
+                    lender_code: lender_code, sanction_id: sanction_id, approval_status: approval_status
+                    // , updatedat: updatedDate
+                }
             });
             if (roc) {
                 return res.status(200).json({ roc });
@@ -135,7 +143,10 @@ exports.rocView = async (req, res) => {
         }
         else if (approval_status === 'Rejected') {
             const roc = await roc_forms_staging.findOne({
-                where: { lender_code: lender_code, sanction_id: sanction_id, approval_status: approval_status, updatedat: updatedDate }
+                where: {
+                    lender_code: lender_code, sanction_id: sanction_id, approval_status: approval_status
+                    // , updatedat: updatedDate 
+                }
             });
             if (roc) {
                 return res.status(200).json({ roc });
@@ -161,35 +172,71 @@ exports.rocUpdate = async (req, res) => {
     console.log("data: ", data);
     const newData = data;
     console.log("new object data: ", newData);
+
     try {
         const JWT_SECRET = process.env.JWT_SECRET;
         const decoded = jwt.verify(data.createdby, JWT_SECRET);
-        // Check if the sanction exists in sanction_details with approval_status: "Approved"
-        const existingSanction = await roc_forms.findOne({
+
+        // 🔐 Global check for any pending approval record in staging
+        const existingStagingLender = await roc_forms_staging.findOne({
             where: {
-                sanction_id: sanction_id,
-                lender_code: lender_code,
+                lender_code,
+                sanction_id,
+                approval_status: "Approval Pending"
+            }
+        });
+
+        if (existingStagingLender) {
+            return res.status(400).json({
+                status: "error",
+                message: "There is already a record in progress. No further updates allowed until approved or rejected."
+            });
+        }
+
+        // Check for Approved record in lender_master
+        const existingLender = await roc_forms.findOne({
+            where: {
+                lender_code,
+                sanction_id,
                 approval_status: "Approved"
             }
         });
 
         // Check for Rejected records in staging
-        const rejectedStagingSanction = await roc_forms_staging.findAll({
-            where: { lender_code: lender_code, sanction_id: sanction_id, approval_status: "Rejected" }
+        const rejectedStagingLenders = await roc_forms_staging.findAll({
+            where: {
+                lender_code,
+                sanction_id,
+                approval_status: "Rejected"
+            }
         });
 
-        // NEW RULE: If user_type = "N", check lender_master for duplicate
+        // Case 1: user_type === "N" (New record)
         if (user_type === "N") {
-
             const existsInMaster = await roc_forms.findOne({
-                where: { sanction_id: sanction_id, lender_code: lender_code }
+                where: {
+                    lender_code,
+                    sanction_id,
+                }
             });
+
             if (existsInMaster) {
                 return res.status(400).json({
                     status: "error",
-                    message: "This sanction_id,lender_code combination already exists. Cannot create new record."
+                    message: "This lender_code already exists in master. Cannot create new record."
                 });
             }
+
+            let updatedFields = [];
+            if (rejectedStagingLenders.length > 0) {
+                const lastRejected = rejectedStagingLenders[rejectedStagingLenders.length - 1];
+                Object.keys(data).forEach((key) => {
+                    if (data[key] !== lastRejected[key]) {
+                        updatedFields.push(key);
+                    }
+                });
+            }
+
             const newRecord = {
                 ...data,
                 createdat: new Date(),
@@ -197,7 +244,7 @@ exports.rocUpdate = async (req, res) => {
                 approval_status: "Approval Pending",
                 createdby: decoded.id,
                 updatedby: decoded.id,
-                user_type: data.user_type, // Update to "U"
+                updated_fields: updatedFields,
                 id: null
             };
 
@@ -205,12 +252,13 @@ exports.rocUpdate = async (req, res) => {
 
             return res.status(201).json({
                 status: "success",
-                message: "New ROC Form created.",
-                NewStagingRecord: newStagingRecord
+                message: "New ROC created .",
+                NewStagingRecord: newStagingRecord,
+                updatedFields
             });
         }
 
-        // If user_type is "U", skip master check and insert directly
+        // Case 2: user_type === "U" (Create update request directly)
         if (user_type === "U") {
             const newRecord = {
                 ...data,
@@ -219,44 +267,26 @@ exports.rocUpdate = async (req, res) => {
                 approval_status: "Approval Pending",
                 createdby: decoded.id,
                 updatedby: decoded.id,
-                user_type: "U",
                 id: null
             };
 
             const newStagingRecord = await roc_forms_staging.create(newRecord);
-            console.log("record: ", newRecord)
 
             return res.status(201).json({
                 status: "success",
-                message: "Record inserted for user_type U.",
+                message: "Record inserted.",
                 NewStagingRecord: newStagingRecord
             });
         }
 
-
-        // Proceed with update flow if existingSanction found (edit case)
+        // Case 3: If record exists in master, compare and stage updates
         let updatedFields = [];
-        if (existingSanction) {
+        if (existingLender) {
             Object.keys(newData).forEach((key) => {
-                if (newData[key] !== existingSanction[key]) {
+                if (newData[key] !== existingLender[key]) {
                     updatedFields.push(key);
                 }
             });
-
-            const existingStagingLender = await roc_forms_staging.findOne({
-                where: {
-                    lender_code: lender_code,
-                    sanction_id: sanction_id,
-                    approval_status: "Approval Pending"
-                }
-            });
-
-            if (existingStagingLender) {
-                return res.status(400).json({
-                    status: "error",
-                    message: "There is already a record in progress for edit, no further updates allowed!"
-                });
-            }
 
             const recordWithPendingApproval = {
                 ...data,
@@ -265,7 +295,6 @@ exports.rocUpdate = async (req, res) => {
                 updated_fields: updatedFields,
                 approval_status: "Approval Pending",
                 id: null,
-                user_type: "U",
                 createdby: decoded.id,
                 updatedby: decoded.id
             };
@@ -274,31 +303,15 @@ exports.rocUpdate = async (req, res) => {
 
             return res.status(201).json({
                 status: "success",
-                message: "ROC Form update request is in progress. No further updates allowed until approved.",
+                message: "ROC update request is in progress. No further updates allowed until approved.",
                 NewStagingRecord: newStagingRecord,
-                updatedFields: updatedFields
+                updatedFields
             });
         }
 
-        // Check for pending edits again
-        const existingStagingLender = await roc_forms_staging.findOne({
-            where: {
-                lender_code: lender_code,
-                sanction_id: sanction_id,
-                approval_status: "Approval Pending"
-            }
-        });
-
-        if (existingStagingLender) {
-            return res.status(400).json({
-                status: "error",
-                message: "Sanction already exists, no further updates allowed until approved."
-            });
-        }
-
-        // If rejected record exists and master doesn't have this code, create new
-        if (!existingSanction && rejectedStagingSanction.length > 0) {
-            const lastRejected = rejectedStagingSanction[rejectedStagingSanction.length - 1];
+        // Case 4: If no approved record but previously rejected exists
+        if (!existingLender && rejectedStagingLenders.length > 0) {
+            const lastRejected = rejectedStagingLenders[rejectedStagingLenders.length - 1];
 
             updatedFields = [];
             Object.keys(newData).forEach((key) => {
@@ -314,7 +327,7 @@ exports.rocUpdate = async (req, res) => {
                 approval_status: "Approval Pending",
                 createdby: decoded.id,
                 updatedby: decoded.id,
-                // user_type: "U",
+                user_type: "U",
                 updated_fields: updatedFields,
                 id: null
             };
@@ -329,22 +342,25 @@ exports.rocUpdate = async (req, res) => {
             });
         }
 
-        // Final fallback: try updating the existing staging record
+        // Final fallback: attempt to update existing staging record
         const [updateCount, updatedRecords] = await roc_forms_staging.update(data, {
-            where: { lender_code: lender_code, sanction_id: sanction_id },
+            where: {
+                lender_code,
+                sanction_id,
+            },
             returning: true
         });
 
         if (updateCount === 0) {
             return res.status(404).json({
                 status: "error",
-                message: "Roc Form not found or no changes detected."
+                message: "Sanction not found or no changes detected."
             });
         }
 
         return res.status(200).json({
             status: "success",
-            message: "Roc Form updated successfully.",
+            message: "ROC updated successfully.",
             updatedFields: updatedFields,
             UpdatedLender: updatedRecords ? updatedRecords[0] : null
         });
@@ -354,6 +370,7 @@ exports.rocUpdate = async (req, res) => {
         res.status(500).json({ status: "error", message: "Internal server error", error: error.message });
     }
 };
+
 
 // Sanction Details Approval API
 exports.rocApprove = async (req, res) => {

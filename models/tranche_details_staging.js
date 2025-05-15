@@ -124,6 +124,14 @@ module.exports = function(sequelize, DataTypes) {
     tranche_date: {
       type: DataTypes.DATEONLY,
       allowNull: true
+    },
+    moratorium_start_date: {
+      type: DataTypes.DATEONLY,
+      allowNull: true
+    },
+    moratorium_end_date: {
+      type: DataTypes.DATEONLY,
+      allowNull: true
     }
   }, {
     sequelize,

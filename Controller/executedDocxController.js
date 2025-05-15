@@ -23,8 +23,8 @@ exports.executedCreate = async (req, res) => {
         uploaded_date: data.uploadedDate,
         document_url: data.fileUrl || null, // Convert "" to null
         approval_status: data.approval_status || "Approval Pending",
-        createdat: new Date(),
-        updatedat: new Date(),
+        // createdat: new Date(),
+        // updatedat: new Date(),
         lender_code: data.lender_code,
         user_type: "N",
         updatedby: decoded.id,
@@ -88,7 +88,7 @@ exports.executedValidate = async (req, res) => {
     try {
         const { sanction_id, lender_code } = req.query;
         console.log("backend check executed:", sanction_id, lender_code)
-        const sanction = await executed_documents.findAll({
+        const sanction = await executed_documents_staging.findAll({
             where: { sanction_id, lender_code }
         });
 
@@ -121,38 +121,6 @@ exports.executedUpdate = async (req, res) => {
 
 // Sanction Details Approval API
 exports.executedApprove = async (req, res) => {
-    //     try {
-    //         // console.log("Received Lender Checkbox Data:", req.body);
-    //         // Ensure req.body is an array for bulk insert
-    //         if (!Array.isArray(req.body)) {
-    //             return res.status(400).json({
-    //                 message: "Invalid data format, expected an array of Executed"
-    //             });
-    //         }
-
-    //         // Bulk insert lenders
-    //         const newLenders = await executed_documents.bulkCreate(req.body.map(sanction => ({ ...sanction, approval_status: "Approved" })), { returning: true });
-    //         const sanctionCodes = req.body.map(sanction => sanction.sanction_id);
-    //         const updatedsanction = await executed_documents_staging.update(
-    //             { approval_status: "Approved" },
-    //             { where: { sanction_id: sanctionCodes } }
-    //         );
-    //         // console.log("Main Page: ", newLenders);
-    //         // console.log("Staging Page: ", updatedLenders);
-
-    //         res.status(201).json({
-    //             message: "Executed Added successfully",
-    //             datatoMain: newLenders,
-    //             StagingUpdate: updatedsanction
-    //         });
-    //     } catch (error) {
-    //         console.error("Error:", error);
-    //         res.status(500).json({
-    //             message: "Internal server error",
-    //             error: error.message
-    //         });
-    //     }
-    // };
     try {
         console.log("approve Executed backend:", req.body)
         if (!Array.isArray(req.body)) {
@@ -322,7 +290,7 @@ exports.viewdocument = async (req, res) => {
         console.log("sanction data view : ", sanction)
 
         if (!sanction || !sanction.document_url) {
-            return res.status(404).json({ message: "Executed document not found" });
+            return res.status(404).json({ success: false, message: "Executed document not found" });
         }
 
         // Define absolute file path
@@ -330,7 +298,10 @@ exports.viewdocument = async (req, res) => {
 
         // Check if file exists
         if (!fs.existsSync(filePath)) {
-            return res.status(404).json({ message: "File not found on server" });
+            return res.status(404).json({
+                status: "error",
+                message: "File not found on server,Please Reupload File"
+            });
         }
 
         // Set response headers to display PDF

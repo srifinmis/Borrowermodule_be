@@ -67,6 +67,31 @@ module.exports = function(sequelize, DataTypes) {
         model: 'roles',
         key: 'role_id'
       }
+    },
+    role_ids_assigned: {
+      type: DataTypes.STRING(50),
+      allowNull: true
+    },
+    regionid_name: {
+      type: DataTypes.STRING(50),
+      allowNull: true
+    },
+    system_id: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 0
+    },
+    areaid_name: {
+      type: DataTypes.STRING(50),
+      allowNull: true
+    },
+    clusterid_name: {
+      type: DataTypes.STRING(50),
+      allowNull: true
+    },
+    state: {
+      type: DataTypes.STRING(50),
+      allowNull: true
     }
   }, {
     sequelize,
@@ -74,14 +99,6 @@ module.exports = function(sequelize, DataTypes) {
     schema: 'public',
     timestamps: false,
     indexes: [
-      {
-        name: "employee_master_composite_idx",
-        fields: [
-          { name: "emp_id" },
-          { name: "reports_to_id" },
-          { name: "role_id" },
-        ]
-      },
       {
         name: "employee_master_pkey",
         unique: true,

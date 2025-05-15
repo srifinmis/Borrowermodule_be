@@ -13,23 +13,23 @@ const models = initModels(sequelize);
 const { alert_management } = models;
 const { startCronJob } = require("./Controller/alertTriggerController");
 
-
 // const axios = require('axios');
 const Router = require("./Routes/Router")
+const excelRoutes = require('./Routes/tranchExcelRoutes');
 
 const app = express();
 
-app.use(helmet());//Secure HTTP headers
-app.use(xss());//Prevent XSS attack
+app.use(helmet()); //Secure HTTP headers
+app.use(xss());  //Prevent XSS attack
 app.use(cors());
 app.use(express.json());
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
+const API_URL = process.env.REACT_APP_API_URL;
 const PORT = process.env.PORT;
-
 app.use("/api", Router);
-
+app.use('/api/excel', excelRoutes);
 // **Auto-Start Jobs on Server Restart**
 const loadCronJobs = async () => {
     const rows = await alert_management.findAll({
